@@ -1,0 +1,109 @@
+diff --git a/package.json b/package.json
+index 12f4e0a..abcd123 100644
+--- a/package.json
++++ b/package.json
+@@ -5,7 +5,6 @@
+   "main": "dist/electron/main.js",
+   "scripts": {
+     "dev": "vite",
+-    "proxy": "http://localhost:8080",
+     "build": "vite build && electron-builder"
+   },
+   "dependencies": {
+diff --git a/src/shared/types.ts b/src/shared/types.ts
+index 0f1d2a2..bcd3456 100644
+--- a/src/shared/types.ts
++++ b/src/shared/types.ts
+@@ -5,6 +5,7 @@ export interface Expense {
+   amount: number;
+   category: string;
+   date: string;
++  comment?: string;
+ }
+diff --git a/src/main/db/init.ts b/src/main/db/init.ts
+index 2d1d3e3..bce4eaa 100644
+--- a/src/main/db/init.ts
++++ b/src/main/db/init.ts
+@@ -12,6 +12,12 @@ export function initDatabase() {
+     CREATE TABLE IF NOT EXISTS expenses (
+       id INTEGER PRIMARY KEY AUTOINCREMENT,
+       name TEXT,
+       amount REAL,
+       category TEXT,
+       date TEXT
+     );
+   `);
++
++  // Add comment column if not exists
++  try {
++    db.prepare('ALTER TABLE expenses ADD COLUMN comment TEXT DEFAULT ""').run();
++  } catch (e) {
++    // ignore if already exists
++  }
+ }
+diff --git a/src/main/api/expenses.ts b/src/main/api/expenses.ts
+index f4ab2f3..d6d15b3 100644
+--- a/src/main/api/expenses.ts
++++ b/src/main/api/expenses.ts
+@@ -15,10 +15,18 @@ ipcMain.handle('expense:add', async (_event, expense) => {
+   const stmt = db.prepare(`
+-    INSERT INTO expenses (name, amount, category, date)
+-    VALUES (?, ?, ?, ?)
++    INSERT INTO expenses (name, amount, category, date, comment)
++    VALUES (?, ?, ?, ?, ?)
+   `);
+-  const result = stmt.run(expense.name, expense.amount, expense.category, expense.date);
++  const result = stmt.run(
++    expense.name,
++    expense.amount,
++    expense.category,
++    expense.date,
++    expense.comment ?? ''
++  );
+   return { id: result.lastInsertRowid };
+ });
+ 
+ ipcMain.handle('expense:update', async (_event, expense) => {
+   const stmt = db.prepare(`
+-    UPDATE expenses SET name = ?, amount = ?, category = ?, date = ? WHERE id = ?
+-  `);
+-  stmt.run(expense.name, expense.amount, expense.category, expense.date, expense.id);
++    UPDATE expenses
++    SET name = ?, amount = ?, category = ?, date = ?, comment = ?
++    WHERE id = ?
++  `);
++  stmt.run(expense.name, expense.amount, expense.category, expense.date, expense.comment ?? '', expense.id);
+   return true;
+ });
+diff --git a/src/renderer/components/ExpenseModal.tsx b/src/renderer/components/ExpenseModal.tsx
+index 58b2f3d..cd4a1e0 100644
+--- a/src/renderer/components/ExpenseModal.tsx
++++ b/src/renderer/components/ExpenseModal.tsx
+@@ -48,6 +48,18 @@ export const ExpenseModal = ({ expense, onSave, onCancel }: Props) => {
+           />
+         </div>
+
++        {/* Comment field */}
++        <div className="mt-3">
++          <label className="block text-sm text-gray-600 mb-1">Komentarz:</label>
++          <textarea
++            className="w-full p-2 text-sm border border-gray-300 rounded-md resize-none"
++            rows={3}
++            value={form.comment || ''}
++            onChange={(e) => setForm({ ...form, comment: e.target.value })}
++            placeholder="Dodaj notatkę o wydatku..."
++          />
++        </div>
++
+         <div className="flex justify-end space-x-2 mt-4">
+           <button
+             onClick={onCancel}
+@@ -70,6 +82,9 @@ export const ExpenseModal = ({ expense, onSave, onCancel }: Props) => {
+         </div>
++
++        {form.comment && (
++          <p className="mt-3 text-xs text-gray-500 whitespace-pre-wrap">{form.comment}</p>
++        )}
+       </div>
+     </div>
+   );
